@@ -25,7 +25,7 @@ def parse_curl() -> None:
             HEADERS[header] = content
         global GROUP
         group_index = curl_data.find("/group/") + len("/group/")
-        GROUP = curl_data[group_index: curl_data.index("'", group_index)]
+        GROUP = curl_data[group_index: curl_data.index("/", group_index + 1)]
         curl_file.close()
 
     except Exception as e:
@@ -76,10 +76,10 @@ async def get_group(session: aiohttp.ClientSession):
     """
     global GROUP_SLUG
     try:
-        async with session.get(url=f"https://api.campuswire.com/v1/group/{GROUP}") as resp:
-            res = json.loads(await resp.text())
-            GROUP_SLUG = res['slug']
-            return resp.json()
+        resp = await session.get(url=f"https://api.campuswire.com/v1/group/{GROUP}")
+        res = json.loads(await resp.text())
+        GROUP_SLUG = res['slug']
+        return resp.json()
     except Exception as e:
         print(e)
         return None
@@ -92,8 +92,8 @@ async def get_posts(session: aiohttp.ClientSession):
     :return: JSON
     """
     try:
-        async with session.get(url=f"https://api.campuswire.com/v1/group/{GROUP}/posts") as resp:
-            return resp.json()
+        resp = await session.get(url=f"https://api.campuswire.com/v1/group/{GROUP}/posts")
+        return resp.json()
 
     except Exception as e:
         print(e)
