@@ -1,13 +1,16 @@
 import aiohttp
 import asyncio
+import aiocache
 import sys
 import os
 import json
+from pprint import pprint
 
 HEADERS = {}
 GROUP = None
 GROUP_SLUG = None
 GROUP_DIR = None
+CLASS_NUMBER = None
 
 
 def parse_curl() -> None:
@@ -35,25 +38,26 @@ def parse_curl() -> None:
 
 async def prepare_fs() -> bool:
     global GROUP_DIR
-    GROUP_DIR = f"{os.getcwd()}/campuswire_data/{GROUP_SLUG}"
+    global CLASS_NUMBER
+    GROUP_DIR = f"{os.getcwd()}/campuswire_data/{CLASS_NUMBER} ({GROUP_SLUG})"
     try:
         if not os.path.exists(GROUP_DIR):
             os.mkdir(GROUP_DIR)
             print(f"Directory 'campuswire_data/{GROUP_SLUG}' created")
-            return True
         else:
             print(f"Directory 'campuswire_data/{GROUP_SLUG}' exists")
             if input("Do you want to overwrite it? (y/n): ").lower() == 'n':
-                print("Abort operation")
+                print("Abort operation...")
                 return False
-            return True
+        return True
 
     except Exception as e:
+        print("here")
         print(e)
         return False
 
 
-def write_to_file(file_name: str, data: str):
+def write_to_file(file_name: str, data: str | dict | tuple):
     """
     Write data to a file
     :param file_name: file name
@@ -75,14 +79,17 @@ async def get_group(session: aiohttp.ClientSession):
     :return:
     """
     global GROUP_SLUG
+    global CLASS_NUMBER
     try:
         resp = await session.get(url=f"https://api.campuswire.com/v1/group/{GROUP}")
         res = json.loads(await resp.text())
         GROUP_SLUG = res['slug']
+        CLASS_NUMBER = res['classNumber'].strip('\\ \n').replace('/', '-')
         return resp.json()
     except Exception as e:
         print(e)
         return None
+
 
 
 async def get_posts(session: aiohttp.ClientSession):
@@ -107,8 +114,14 @@ async def get_comments(session: aiohttp.ClientSession, post_id: str):
     :return: JSON
     """
     try:
-        async with session.get(url=f"https://api.campuswire.com/v1/group/{GROUP}") as response:
-            return await response.json()
+        async with session.get(url=f"https://api.campuswire.com/v1/group/{GROUP}/posts/{post_id}/comments") as resp:
+            res = json.loads(await resp.text())
+            return {
+                post_id: res
+            }
+
+    except aiohttp.ServerDisconnectedError:
+        print("Server terminated the connection")
 
     except Exception as e:
         print(e)
@@ -128,8 +141,19 @@ async def main():
 
     posts = await get_posts(session)
 
+    tasks = []
+    for post in await posts:
+        tasks.append(asyncio.ensure_future(get_comments(session, post['id'])))
+    all_comments = await asyncio.gather(*tasks)
+
+    comments = {}
+    for comment in all_comments:
+        comments.update(comment)
+
+    _posts = await get_posts(session)
     write_to_file("group.json", await group)
-    write_to_file("posts.json", await posts)
+    write_to_file("posts.json", await _posts)
+    write_to_file("comments.json", comments)
 
     await session.close()
 
