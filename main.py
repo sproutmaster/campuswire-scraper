@@ -1,16 +1,20 @@
+#!/usr/bin/env python3
+
+from typing import Any, Coroutine
+from collections import ChainMap
+
 import aiohttp
 import asyncio
 import aiocache
 import sys
 import os
 import json
-from pprint import pprint
 
 HEADERS = {}
-GROUP = None
-GROUP_SLUG = None
-GROUP_DIR = None
-CLASS_NUMBER = None
+GROUP: str | None = None
+GROUP_SLUG: str | None = None
+GROUP_DIR: str | None = None
+CLASS_NUMBER: str | None = None
 
 
 def parse_curl() -> None:
@@ -18,15 +22,18 @@ def parse_curl() -> None:
     Parse a simple curl command into a dictionary of headers and the url
     :return: None
     """
+    global GROUP
     try:
         curl_file = open("curl.txt", 'r')
         curl_data = curl_file.read()
+        if len(curl_data) == 0:
+            print("curl.txt should be populated with curl command")
+            exit()
         curl_data = curl_data.replace("--compressed", '')
         split_headers = curl_data.split(" -H")
         for i in range(1, len(split_headers)):
-            header, _, content = split_headers[i].replace(' ', '', 2).lstrip('\'').rstrip("\n \\\'").partition(":")
+            header, _, content = split_headers[i].replace(' ', '', 2).lstrip('\'').rstrip("\n \\\'").partition(':')
             HEADERS[header] = content
-        global GROUP
         group_index = curl_data.find("/group/") + len("/group/")
         GROUP = curl_data[group_index: curl_data.index("/", group_index + 1)]
         curl_file.close()
@@ -52,12 +59,11 @@ async def prepare_fs() -> bool:
         return True
 
     except Exception as e:
-        print("here")
         print(e)
         return False
 
 
-def write_to_file(file_name: str, data: str | dict | tuple):
+def write_to_file(file_name: str, data: str | dict | tuple) -> None:
     """
     Write data to a file
     :param file_name: file name
@@ -68,15 +74,16 @@ def write_to_file(file_name: str, data: str | dict | tuple):
     try:
         with open(f"{GROUP_DIR}/{file_name}", 'w') as file:
             json.dump(data, file, indent=4)
+
     except Exception as e:
         print(e)
 
 
-async def get_group(session: aiohttp.ClientSession):
+async def get_group(session: aiohttp.ClientSession) -> Coroutine[Any, Any, Any]:
     """
     Get group information and sets GROUP_SLUG
     :param session:
-    :return:
+    :return: JSON
     """
     global GROUP_SLUG
     global CLASS_NUMBER
@@ -84,15 +91,15 @@ async def get_group(session: aiohttp.ClientSession):
         resp = await session.get(url=f"https://api.campuswire.com/v1/group/{GROUP}")
         res = json.loads(await resp.text())
         GROUP_SLUG = res['slug']
-        CLASS_NUMBER = res['classNumber'].strip('\\ \n').replace('/', '-')
+        CLASS_NUMBER = res['classNumber'].strip('\\ \n').replace('/', '-').replace(':', '-')
         return resp.json()
+
     except Exception as e:
         print(e)
-        return None
 
 
-
-async def get_posts(session: aiohttp.ClientSession):
+@aiocache.cached()
+async def get_posts(session: aiohttp.ClientSession) -> Coroutine[Any, Any, Any] | dict[str, Any]:
     """
     Get posts for a group
     :param session: Session
@@ -106,12 +113,12 @@ async def get_posts(session: aiohttp.ClientSession):
         print(e)
 
 
-async def get_comments(session: aiohttp.ClientSession, post_id: str):
+async def get_comments(session: aiohttp.ClientSession, post_id: str) -> dict[str, list[dict[str, Any]]]:
     """
     Get comments for a post
     :param session: Session
     :param post_id: post id
-    :return: JSON
+    :return: dict
     """
     try:
         async with session.get(url=f"https://api.campuswire.com/v1/group/{GROUP}/posts/{post_id}/comments") as resp:
@@ -119,16 +126,14 @@ async def get_comments(session: aiohttp.ClientSession, post_id: str):
             return {
                 post_id: res
             }
-
     except aiohttp.ServerDisconnectedError:
         print("Server terminated the connection")
 
     except Exception as e:
         print(e)
-        return None
 
 
-async def main():
+async def main() -> None:
     parse_curl()
     session = aiohttp.ClientSession(headers=HEADERS)
     group = await get_group(session)
@@ -146,11 +151,10 @@ async def main():
         tasks.append(asyncio.ensure_future(get_comments(session, post['id'])))
     all_comments = await asyncio.gather(*tasks)
 
-    comments = {}
-    for comment in all_comments:
-        comments.update(comment)
+    comments = dict(ChainMap(*all_comments))
 
     _posts = await get_posts(session)
+
     write_to_file("group.json", await group)
     write_to_file("posts.json", await _posts)
     write_to_file("comments.json", comments)
