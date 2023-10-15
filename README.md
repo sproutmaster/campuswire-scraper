@@ -1,6 +1,6 @@
 # Campuswire Data Scraper
 
-This is a simple script that scrapes group info, posts and comments from from Campuswire.
+This script downloads group info, posts, and comments from Campuswire.
 
 
 ## Usage
