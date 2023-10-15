@@ -5,16 +5,16 @@ from collections import ChainMap
 
 import aiohttp
 import asyncio
-import aiocache
 import sys
 import os
 import json
+import copy
 
-HEADERS = {}
-GROUP: str | None = None
-GROUP_SLUG: str | None = None
-GROUP_DIR: str | None = None
-CLASS_NUMBER: str | None = None
+HEADERS: dict = {}
+GROUP: str = ''
+GROUP_SLUG: str = ''
+GROUP_DIR: str = ''
+CLASS_NUMBER: str = ''
 
 
 def parse_curl() -> None:
@@ -27,7 +27,7 @@ def parse_curl() -> None:
         curl_file = open("curl.txt", 'r')
         curl_data = curl_file.read()
         if len(curl_data) == 0:
-            print("curl.txt should be populated with curl command")
+            print("curl.txt should be populated with curl command", file=sys.stderr)
             exit()
         curl_data = curl_data.replace("--compressed", '')
         split_headers = curl_data.split(" -H")
@@ -39,27 +39,32 @@ def parse_curl() -> None:
         curl_file.close()
 
     except Exception as e:
-        print(e)
+        print(e, file=sys.stderr)
         exit()
 
 
 async def prepare_fs() -> bool:
+    """
+    Create a directory for the group
+    :return: True if successful, False otherwise
+    """
     global GROUP_DIR
     global CLASS_NUMBER
     GROUP_DIR = f"{os.getcwd()}/campuswire_data/{CLASS_NUMBER} ({GROUP_SLUG})"
     try:
         if not os.path.exists(GROUP_DIR):
+            os.mkdir(f"{os.getcwd()}/campuswire_data")
             os.mkdir(GROUP_DIR)
             print(f"Directory 'campuswire_data/{GROUP_SLUG}' created")
         else:
             print(f"Directory 'campuswire_data/{GROUP_SLUG}' exists")
             if input("Do you want to overwrite it? (y/n): ").lower() == 'n':
-                print("Abort operation...")
+                print("Abort operation!", file=sys.stderr)
                 return False
         return True
 
     except Exception as e:
-        print(e)
+        print(e, file=sys.stderr)
         return False
 
 
@@ -76,10 +81,10 @@ def write_to_file(file_name: str, data: str | dict | tuple) -> None:
             json.dump(data, file, indent=4)
 
     except Exception as e:
-        print(e)
+        print(e, file=sys.stderr)
 
 
-async def get_group(session: aiohttp.ClientSession) -> Coroutine[Any, Any, Any]:
+async def get_group(session: aiohttp.ClientSession) -> Coroutine[Any, Any, Any] | dict[str, Any]:
     """
     Get group information and sets GROUP_SLUG
     :param session:
@@ -95,10 +100,9 @@ async def get_group(session: aiohttp.ClientSession) -> Coroutine[Any, Any, Any]:
         return resp.json()
 
     except Exception as e:
-        print(e)
+        print(e, file=sys.stderr)
 
 
-@aiocache.cached()
 async def get_posts(session: aiohttp.ClientSession) -> Coroutine[Any, Any, Any] | dict[str, Any]:
     """
     Get posts for a group
@@ -110,7 +114,7 @@ async def get_posts(session: aiohttp.ClientSession) -> Coroutine[Any, Any, Any] 
         return resp.json()
 
     except Exception as e:
-        print(e)
+        print(e, file=sys.stderr)
 
 
 async def get_comments(session: aiohttp.ClientSession, post_id: str) -> dict[str, list[dict[str, Any]]]:
@@ -127,10 +131,10 @@ async def get_comments(session: aiohttp.ClientSession, post_id: str) -> dict[str
                 post_id: res
             }
     except aiohttp.ServerDisconnectedError:
-        print("Server terminated the connection")
+        print("Server terminated the connection", file=sys.stderr)
 
     except Exception as e:
-        print(e)
+        print(e, file=sys.stderr)
 
 
 async def main() -> None:
@@ -142,7 +146,7 @@ async def main() -> None:
         await session.close()
         await exit()
 
-    print("Fetching data...")
+    print("Downloading data...")
 
     posts = await get_posts(session)
 
@@ -160,6 +164,8 @@ async def main() -> None:
     write_to_file("comments.json", comments)
 
     await session.close()
+
+    print("\033[92m{}\033[00m".format("Completed!"))
 
 
 if __name__ == '__main__':
